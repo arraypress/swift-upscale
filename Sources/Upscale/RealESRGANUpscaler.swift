@@ -28,7 +28,7 @@ public final class RealESRGANUpscaler: @unchecked Sendable {
     public init(modelURL: URL) throws {
         let url = modelURL.pathExtension == "mlmodelc" ? modelURL : try MLModel.compileModel(at: modelURL)
         let cfg = MLModelConfiguration()
-        cfg.computeUnits = .all
+        cfg.computeUnits = .cpuAndNeuralEngine   // ~25% faster than .all for this model
         model = try MLModel(contentsOf: url, configuration: cfg)
         ciContext = CIContext(options: [.cacheIntermediates: false])
     }
