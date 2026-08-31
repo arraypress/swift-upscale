@@ -58,12 +58,17 @@ struct UpscaleTests {
         guard let model = installedModel else { print("[skip] no installed model"); return }
         let up = try RealESRGANUpscaler(modelURL: model)
         let base = CIImage(color: CIColor(red: 0.8, green: 0.3, blue: 0.2)).cropped(to: CGRect(x: 0, y: 0, width: 48, height: 32))
-        var ticks = 0
-        let lock = NSLock()
-        let result = try #require(up.upscale(base, progress: { _ in lock.lock(); ticks += 1; lock.unlock() }))
+        final class Ticks: @unchecked Sendable {
+            let lock = NSLock()
+            var n = 0
+            func tick() { lock.lock(); n += 1; lock.unlock() }
+        }
+        let ticks = Ticks()
+        let maybe = up.upscale(base, progress: { _ in ticks.tick() })
+        let result = try #require(maybe)
         #expect(Int(result.extent.width) == 192)
         #expect(Int(result.extent.height) == 128)
-        #expect(ticks >= 1, "progress never ticked")
+        #expect(ticks.n >= 1, "progress never ticked")
         var buf = [UInt8](repeating: 0, count: 192 * 128 * 4)
         CIContext().render(result, toBitmap: &buf, rowBytes: 192 * 4,
                            bounds: CGRect(x: 0, y: 0, width: 192, height: 128),
