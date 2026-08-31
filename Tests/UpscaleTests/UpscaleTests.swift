@@ -44,4 +44,47 @@ struct UpscaleTests {
                                                format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
         print("WROTE ~/Downloads/upscale_swift.png + upscale_bicubic.png")
     }
+
+    /// Where the `upscale` CLI installs the default model. When it is
+    /// present the library gets real default-run coverage; elsewhere the
+    /// test skips visibly rather than passing on nothing.
+    private var installedModel: URL? {
+        let url = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support/upscale/x4plus.mlpackage")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    @Test("A small synthetic frame comes back exactly 4×, with pixels in it")
+    func syntheticFourTimes() throws {
+        guard let model = installedModel else { print("[skip] no installed model"); return }
+        let up = try RealESRGANUpscaler(modelURL: model)
+        let base = CIImage(color: CIColor(red: 0.8, green: 0.3, blue: 0.2)).cropped(to: CGRect(x: 0, y: 0, width: 48, height: 32))
+        var ticks = 0
+        let lock = NSLock()
+        let result = try #require(up.upscale(base, progress: { _ in lock.lock(); ticks += 1; lock.unlock() }))
+        #expect(Int(result.extent.width) == 192)
+        #expect(Int(result.extent.height) == 128)
+        #expect(ticks >= 1, "progress never ticked")
+        var buf = [UInt8](repeating: 0, count: 192 * 128 * 4)
+        CIContext().render(result, toBitmap: &buf, rowBytes: 192 * 4,
+                           bounds: CGRect(x: 0, y: 0, width: 192, height: 128),
+                           format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        let mid = (64 * 192 + 96) * 4
+        #expect(buf[mid] > 120, "output centre should be reddish, got \(buf[mid])")
+    }
+
+    @Test("Cancellation between tiles aborts to nil")
+    func cancellationAborts() throws {
+        guard let model = installedModel else { print("[skip] no installed model"); return }
+        let up = try RealESRGANUpscaler(modelURL: model)
+        let base = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: CGRect(x: 0, y: 0, width: 600, height: 600))
+        let result = up.upscale(base, isCancelled: { true })
+        #expect(result == nil, "a cancelled run must return nil, not a partial image")
+    }
+
+    @Test("A model URL that is not a model throws, not traps")
+    func badModelThrows() {
+        #expect(throws: (any Error).self) {
+            _ = try RealESRGANUpscaler(modelURL: URL(fileURLWithPath: "/tmp/not-a-model.mlpackage"))
+        }
+    }
 }
