@@ -68,53 +68,31 @@ public final class RealESRGANUpscaler: @unchecked Sendable {
             .transformed(by: CGAffineTransform(translationX: -ext.minX, y: -ext.minY))
             .cropped(to: CGRect(x: 0, y: 0, width: W, height: H))
 
-        let xs = origins(W), ys = origins(H)
+        let xs = Tiling.origins(W, tile: T, overlap: Self.overlap), ys = Tiling.origins(H, tile: T, overlap: Self.overlap)
         let total = xs.count * ys.count
         var done = 0
-        let canvas = CGRect(x: 0, y: 0, width: W * S, height: H * S)
-        var acc = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: canvas)
-
+        let canvas = TileCanvas(width: W * S, height: H * S)
         for (yi, oy) in ys.enumerated() {
             for (xi, ox) in xs.enumerated() {
                 if isCancelled?() == true { return nil }
-                let tileImg = img.clampedToExtent()
-                    .cropped(to: CGRect(x: ox, y: oy, width: T, height: T))
-                    .transformed(by: CGAffineTransform(translationX: -CGFloat(ox), y: -CGFloat(oy)))
+                let tileImg = Tiling.crop(img, x: ox, y: oy, tile: T)
                 guard let up = predictTile(tileImg) else { return nil }
-                // Sequential paint-over: ONLY the incoming tile ramps, and only
-                // on sides facing already-painted content (left/bottom in this
-                // scan order) — the blend is then tile·m + acc·(1−m) over
-                // full-weight pixels, total weight ≡ 1. Ramping BOTH sides of a
-                // seam under-weighted the band (t + (1−t)² = 0.75 at center),
-                // which showed up as a 25% alpha/brightness dip along seams.
-                let mask = blendMask(left: xi > 0, right: false,
-                                     bottom: yi > 0, top: false)
-                let shift = CGAffineTransform(translationX: CGFloat(ox * S), y: CGFloat(oy * S))
-                acc = up.transformed(by: shift).applyingFilter("CIBlendWithMask", parameters: [
-                    "inputBackgroundImage": acc,
-                    "inputMaskImage": mask.transformed(by: shift),
-                ]).cropped(to: canvas)
+                // Painted straight into one buffer with ramped seams
+                // (Support/TileCanvas): a Core Image blend per tile made the
+                // final render evaluate every tile's blend for every pixel —
+                // 40 minutes for a 12 MP photo.
+                canvas.paint(up, size: T * S, x: ox * S, y: oy * S, feather: Self.overlap * S,
+                             left: xi > 0, bottom: yi > 0)
                 done += 1
                 progress?(Double(done) / Double(total))
             }
         }
-        return acc
-    }
-
-    /// Tile origins along an axis: the minimum number of 256-wide tiles whose
-    /// spacing keeps at least `overlap` px shared with each neighbour, spread
-    /// evenly (first at 0, last flush to the far edge). Even spacing avoids the
-    /// old stepping grid's lopsided last pair (up to a near-duplicate tile).
-    private func origins(_ len: Int) -> [Int] {
-        let T = Self.tile, step = Self.tile - Self.overlap
-        if len <= T { return [0] }
-        let n = Int(ceil(Double(len - T) / Double(step))) + 1
-        return (0..<n).map { Int((Double($0) * Double(len - T) / Double(n - 1)).rounded()) }
+        return canvas.image(colorSpace: deviceRGB)
     }
 
     // MARK: - Single tile: CIImage 256² → Core ML → CIImage 1024²
 
-    private func predictTile(_ tile: CIImage) -> CIImage? {
+    private func predictTile(_ tile: CIImage) -> [UInt8]? {
         let T = Self.tile, N = T * Self.scale
         guard let input = inputScratch else { return nil }
 
@@ -142,10 +120,7 @@ public final class RealESRGANUpscaler: @unchecked Sendable {
         readCHW(arr, n: N) { i, r, g, b in
             obuf[i * 4 + 0] = r; obuf[i * 4 + 1] = g; obuf[i * 4 + 2] = b
         }
-        // The Data copy is what CIImage retains — obuf itself dies here, so
-        // the per-tile transient is one 4MB buffer, not two.
-        return CIImage(bitmapData: Data(obuf), bytesPerRow: N * 4,
-                       size: CGSize(width: N, height: N), format: .RGBA8, colorSpace: deviceRGB)
+        return obuf
     }
 
     /// Reads a [1,3,N,N] output array (float32 or float16) as RGB bytes,
@@ -179,25 +154,8 @@ public final class RealESRGANUpscaler: @unchecked Sendable {
         }
     }
 
-    // MARK: - Feather mask (1024²), ramped only on sides that have a neighbour
+}
 
-    private func blendMask(left: Bool, right: Bool, bottom: Bool, top: Bool) -> CIImage {
-        let N = CGFloat(Self.tile * Self.scale), f = CGFloat(Self.overlap * Self.scale)
-        let full = CGRect(x: 0, y: 0, width: N, height: N)
-        var mask = CIImage(color: CIColor(red: 1, green: 1, blue: 1)).cropped(to: full)
-        func ramp(_ p0: CGPoint, _ p1: CGPoint) {
-            let g = CIFilter(name: "CILinearGradient")!
-            g.setValue(CIVector(cgPoint: p0), forKey: "inputPoint0")
-            g.setValue(CIVector(cgPoint: p1), forKey: "inputPoint1")
-            g.setValue(CIColor(red: 0, green: 0, blue: 0), forKey: "inputColor0")
-            g.setValue(CIColor(red: 1, green: 1, blue: 1), forKey: "inputColor1")
-            guard let grad = g.outputImage?.cropped(to: full) else { return }
-            mask = grad.applyingFilter("CIMultiplyCompositing", parameters: ["inputBackgroundImage": mask]).cropped(to: full)
-        }
-        if left { ramp(CGPoint(x: 0, y: 0), CGPoint(x: f, y: 0)) }
-        if right { ramp(CGPoint(x: N, y: 0), CGPoint(x: N - f, y: 0)) }
-        if bottom { ramp(CGPoint(x: 0, y: 0), CGPoint(x: 0, y: f)) }
-        if top { ramp(CGPoint(x: 0, y: N), CGPoint(x: 0, y: N - f)) }
-        return mask
-    }
+extension RealESRGANUpscaler: Upscaler {
+    public var scale: Int { Self.scale }
 }

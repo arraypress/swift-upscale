@@ -3,9 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "Upscale",
-    platforms: [.macOS(.v26), .iOS(.v26)],
+    // Core AI (SwinIR-L, AdcSR) arrived in the 27 SDKs.
+    platforms: [.macOS("27.0"), .iOS("27.0")],
     products: [.library(name: "Upscale", targets: ["Upscale"])],
     targets: [
+        // NonisolatedNonsendingByDefault stays OFF: upscaling is seconds of
+        // tile work in async calls, which must not run on a main-actor caller.
         .target(name: "Upscale"),
         .testTarget(name: "UpscaleTests", dependencies: ["Upscale"]),
     ]
