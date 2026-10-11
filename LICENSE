@@ -19,16 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This package bundles two third-party JavaScript libraries under their
-respective licenses:
-
-- Mozilla Readability (Apache License 2.0)
-  https://github.com/mozilla/readability
-
-- Turndown (MIT License)
-  https://github.com/mixmark-io/turndown
-
-See Sources/Markdownify/Resources/JS/LICENSES.md for full attribution.
