@@ -20,7 +20,7 @@ public actor CoreAIUpscaler: Upscaler {
 
     /// Which model this runs.
     public nonisolated let model: UpscaleModel
-    public nonisolated let scale = 4
+    public nonisolated let scale: Int
 
     /// Input px shared between neighbouring tiles, feather-blended.
     static let overlap = 16
@@ -40,7 +40,7 @@ public actor CoreAIUpscaler: Upscaler {
     /// - Throws: ``UpscaleError/modelUnavailable(_:)`` when `model` is not a
     ///   Core AI model or the asset will not load.
     public init(model: UpscaleModel, url: URL) async throws(UpscaleError) {
-        guard case let .coreAI(tile, input, output, half, signed, colourMatch) = ModelCatalog.record(model).engine else {
+        guard case let .coreAI(tile, scale, input, output, half, signed, colourMatch) = ModelCatalog.record(model).engine else {
             throw .modelUnavailable("\(model.rawValue) is a Core ML model; use RealESRGANUpscaler")
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -59,6 +59,7 @@ public actor CoreAIUpscaler: Upscaler {
         }
         self.model = model
         self.tile = tile
+        self.scale = scale
         self.inputName = input
         self.outputName = output
         self.halfPrecision = half

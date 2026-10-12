@@ -35,6 +35,27 @@ struct CatalogueTests {
         #expect(!UpscaleModel.x4plus.usesCoreAI)
     }
 
+    @Test("MangaJPEGLQ is a 1× Core AI clean-up model; the rest enlarge 4×")
+    func scales() {
+        // 2.0 ran the 1× model as 4× and `upscale --variant manga` segfaulted.
+        #expect(UpscaleModel.manga.scale == 1)
+        #expect(UpscaleModel.manga.usesCoreAI)
+        #expect(UpscaleModel.manga.path.hasSuffix(".aimodel"))
+        for model in UpscaleModel.allCases where model != .manga { #expect(model.scale == 4, "\(model.rawValue)") }
+    }
+
+    @Test("The factory runs a Core ML file on Core ML and refuses a Core ML 1× build")
+    func factoryByFileType() async {
+        // A 0.2-era `x4plus.mlpackage` must not reach the Core AI runner; a stale Core ML
+        // manga build must fail with a message, not crash.
+        await #expect(throws: UpscaleError.self) {
+            _ = try await UpscaleModel.manga.upscaler(at: URL(fileURLWithPath: "/nonexistent/ESRGAN-MangaJPEGLQ.mlpackage"))
+        }
+        await #expect(throws: UpscaleError.self) {
+            _ = try await UpscaleModel.x4plus.upscaler(at: URL(fileURLWithPath: "/nonexistent/x4plus.mlpackage"))
+        }
+    }
+
     @Test("Non-commercial and invented-detail models say so")
     func restrictions() {
         #expect(Set(UpscaleModel.allCases.filter(\.isNonCommercial)) == [.ultrasharp, .manga])

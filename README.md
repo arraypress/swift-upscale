@@ -9,7 +9,8 @@ sharpening. Three upscalers, chosen by a measured bake-off:
 | Real-ESRGAN x4plus | `.x4plus` (`.fast`) | Core ML | BSD-3 | about 6× quicker, a little painterly |
 | AdcSR | `.adcsr` (`.detail`) | Core AI | Apache-2.0 + OpenRAIL++-M | **adds detail that was not there** — generated or casual pictures, not photos you need to trust |
 | Real-ESRGAN x4v3 / x4v3-denoise | `.x4v3`, `.x4v3Denoise` | Core ML | BSD-3 | small and fast; denoise also removes JPEG blocks |
-| 4x-UltraSharp, MangaJPEGLQ | `.ultrasharp`, `.manga` | Core ML | **CC BY-NC-SA 4.0 — non-commercial** | crisper edges; manga scans |
+| 4x-UltraSharp | `.ultrasharp` | Core ML | **CC BY-NC-SA 4.0 — non-commercial** | crisper edges |
+| MangaJPEGLQ | `.manga` | Core AI, **1×** | **CC BY-NC-SA 4.0 — non-commercial** | cleans JPEG blocks out of greyscale manga; doesn't enlarge — run a 4× model after it |
 
 ```swift
 import Upscale
@@ -41,6 +42,18 @@ labelled the two CC BY-NC-SA models BSD-3.
 
 Tiles overlap and are painted in scan order with ramped seams (total weight always 1). Requirements:
 **macOS 27 / iOS 27** (Core AI) since 2.0, Swift 6.2. 1.x stays on macOS 26 with Real-ESRGAN only.
+
+## Core ML or Core AI (2.1)
+
+Every ESRGAN-family model was exported to Core AI from its authors' original weights and checked
+against them (PSNR vs PyTorch float32, six stock-photo tiles each: x4plus 69.3 dB, x4v3 73.4, x4v3
+denoise 64.1, UltraSharp 68.8, MangaJPEGLQ 61.0). On an M3 Max the **Core ML builds stay faster for the
+four 4× models** — 1024→4096: x4plus 4.0 s vs 6.6 s, x4v3 0.79 s vs 1.21 s, UltraSharp 4.2 s vs about
+6.6 s (a 512-px Core AI tile was slower still, 10 s) — so they stay Core ML. **MangaJPEGLQ moved to Core
+AI**: it is a 1× greyscale model, the Core ML build was run as 4× (`upscale --variant manga` segfaulted
+in 2.0), and the new asset is exported from bunzero's original weights (RGB → luma → model → RGB).
+`UpscaleModel.scale` says which models enlarge; `upscaler(at:)` picks the runner by the file you give
+it, so a Core ML file installed by 2.0 or earlier still runs on Core ML.
 
 ## License
 
